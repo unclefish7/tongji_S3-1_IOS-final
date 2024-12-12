@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct labeling_scriptApp: App {
+    init() {
+        print("Current working directory: \(FileManager.default.currentDirectoryPath)")
+    }
+
     var body: some Scene {
         WindowGroup {
-            PoseAnnotationView(folderPath: "/path/to/your/images") // 修改为你的图片目录路径
+            PoseAnnotationView(folderPath: "") // 初始路径为空，用户选择后更新
         }
     }
 }

@@ -16,33 +16,62 @@ class PoseAnnotationViewModel: ObservableObject {
     // 加载图片路径
     func loadImages(from folderPath: String) {
         let fileManager = FileManager.default
-        guard let fileURLs = try? fileManager.contentsOfDirectory(atPath: folderPath) else { return }
-        imagePaths = fileURLs
-            .filter { $0.hasSuffix(".jpg") || $0.hasSuffix(".png") }
-            .map { "\(folderPath)/\($0)" }
-        loadNextImage()
+        let url = URL(fileURLWithPath: folderPath)
+        if url.startAccessingSecurityScopedResource() {
+            do {
+                let fileURLs = try fileManager.contentsOfDirectory(atPath: folderPath)
+                imagePaths = fileURLs
+                    .filter { $0.lowercased().hasSuffix(".jpg") || $0.lowercased().hasSuffix(".png") || $0.lowercased().hasSuffix(".heif") || $0.lowercased().hasSuffix(".heic") }
+                    .map { "\(folderPath)/\($0)" }
+                print("Loaded image paths: \(imagePaths)")
+                loadNextImage()
+            } catch {
+                print("Failed to read contents of directory: \(folderPath), error: \(error)")
+            }
+            url.stopAccessingSecurityScopedResource()
+        } else {
+            print("Failed to access security scoped resource: \(url)")
+        }
     }
 
     // 加载下一张图片
     func loadNextImage() {
-        guard currentIndex < imagePaths.count else { return }
+        guard currentIndex < imagePaths.count else { 
+            print("No more images to load.")
+            return 
+        }
         let path = imagePaths[currentIndex]
         currentIndex += 1
 
         if let image = loadImage(from: path) {
             currentImage = image
+            print("Loaded image: \(path)")
+        } else {
+            print("Failed to load image: \(path)")
         }
     }
 
     // 加载图片
     private func loadImage(from path: String) -> NSImage? {
         let url = URL(fileURLWithPath: path)
-        guard let data = try? Data(contentsOf: url),
-              let image = NSImage(data: data) else {
-            print("Failed to load image: \(path)")
+        if url.startAccessingSecurityScopedResource() {
+            do {
+                let data = try Data(contentsOf: url)
+                guard let image = NSImage(data: data) else {
+                    print("Failed to create image from data: \(path)")
+                    return nil
+                }
+                url.stopAccessingSecurityScopedResource()
+                return image
+            } catch {
+                print("Failed to load image data from: \(path), error: \(error)")
+                url.stopAccessingSecurityScopedResource()
+                return nil
+            }
+        } else {
+            print("Failed to access security scoped resource: \(url)")
             return nil
         }
-        return image
     }
 
     // 提取人体关键点
@@ -83,14 +112,21 @@ class PoseAnnotationViewModel: ObservableObject {
 
     // 导出标注到 JSON 文件
     func exportAnnotations(to path: String) {
-        let jsonEncoder = JSONEncoder()
-        jsonEncoder.outputFormatting = .prettyPrinted
+        let url = URL(fileURLWithPath: path)
+        if url.startAccessingSecurityScopedResource() {
+            let jsonEncoder = JSONEncoder()
+            jsonEncoder.outputFormatting = .prettyPrinted
 
-        do {
-            let jsonData = try jsonEncoder.encode(annotations)
-            try jsonData.write(to: URL(fileURLWithPath: path))
-        } catch {
-            print("Failed to export annotations: \(error)")
+            do {
+                let jsonData = try jsonEncoder.encode(annotations)
+                try jsonData.write(to: url)
+                url.stopAccessingSecurityScopedResource()
+            } catch {
+                print("Failed to export annotations: \(error)")
+                url.stopAccessingSecurityScopedResource()
+            }
+        } else {
+            print("Failed to access security scoped resource: \(url)")
         }
     }
 }
