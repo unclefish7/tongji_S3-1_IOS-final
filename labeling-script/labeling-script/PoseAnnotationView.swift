@@ -69,28 +69,21 @@ struct PoseAnnotationView: View {
                 }
             }
 
-            // 选择目录
-            Button("Select Image Folder") {
+            // 选择图片
+            Button("Select Images") {
                 isShowingImagePicker = true
             }
             .padding()
             .fileImporter(
                 isPresented: $isShowingImagePicker,
-                allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
             ) { result in
                 switch result {
                 case .success(let urls):
-                    if let url = urls.first {
-                        if url.startAccessingSecurityScopedResource() {
-                            viewModel.loadImages(from: url.path)
-                            url.stopAccessingSecurityScopedResource()
-                        } else {
-                            print("Failed to access security scoped resource: \(url)")
-                        }
-                    }
+                    viewModel.loadImages(from: urls.map { $0.path })
                 case .failure(let error):
-                    print("Failed to select folder: \(error)")
+                    print("Failed to select images: \(error)")
                 }
             }
         }

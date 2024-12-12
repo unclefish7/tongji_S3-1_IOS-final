@@ -10,28 +10,14 @@ class PoseAnnotationViewModel: ObservableObject {
     private var currentIndex: Int = 0
 
     init(folderPath: String) {
-        loadImages(from: folderPath)
+        // 初始不加载图片
     }
 
     // 加载图片路径
-    func loadImages(from folderPath: String) {
-        let fileManager = FileManager.default
-        let url = URL(fileURLWithPath: folderPath)
-        if url.startAccessingSecurityScopedResource() {
-            do {
-                let fileURLs = try fileManager.contentsOfDirectory(atPath: folderPath)
-                imagePaths = fileURLs
-                    .filter { $0.lowercased().hasSuffix(".jpg") || $0.lowercased().hasSuffix(".png") || $0.lowercased().hasSuffix(".heif") || $0.lowercased().hasSuffix(".heic") }
-                    .map { "\(folderPath)/\($0)" }
-                print("Loaded image paths: \(imagePaths)")
-                loadNextImage()
-            } catch {
-                print("Failed to read contents of directory: \(folderPath), error: \(error)")
-            }
-            url.stopAccessingSecurityScopedResource()
-        } else {
-            print("Failed to access security scoped resource: \(url)")
-        }
+    func loadImages(from paths: [String]) {
+        imagePaths = paths
+        currentIndex = 0
+        loadNextImage()
     }
 
     // 加载下一张图片
