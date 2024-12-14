@@ -62,3 +62,51 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 python-model/saved_model_arbitrary_style_transfer/*
 python-model/arbitrary_style_transfer.tflite
+
+# Xcode specific
+.DS_Store
+build/
+DerivedData/
+*.xccheckout
+*.xcscmblueprint
+
+# CocoaPods
+Pods/
+Podfile.lock
+# 如果你希望团队使用相同版本的 Pods，可以将 Podfile.lock 注释掉
+
+# Xcode Project Files
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/xcshareddata/.*
+
+# Xcode Workspace Files
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcworkspace/xcshareddata/
+!*.xcworkspace/xcshareddata/.*
+
+# Swift Package Manager
+/.build/
+.swiftpm/xcode/xcuserdata/
+.swiftpm/xcode/package.resolved
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# Carthage
+Carthage/Build
+
+# Accio dependency management
+Dependencies/
+.accio/
+
+# MacOS specific
+Icon?
+Icon\r
+*.swp
+*.swo
+arbitary-style-transfer/arbitary-style-transfer/Resources/arbitrary_style_transfer.tflite
