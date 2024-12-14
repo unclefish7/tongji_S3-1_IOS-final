@@ -60,3 +60,5 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+python-model/fine_tunable_model.tflite
+python-model/fine_tunable_model/*
