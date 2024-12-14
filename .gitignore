@@ -60,5 +60,5 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
-python-model/fine_tunable_model.tflite
-python-model/fine_tunable_model/*
+python-model/saved_model_arbitrary_style_transfer/*
+python-model/arbitrary_style_transfer.tflite

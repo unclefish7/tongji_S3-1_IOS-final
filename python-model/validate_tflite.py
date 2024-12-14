@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 
 # 加载 TFLite 模型
-interpreter = tf.lite.Interpreter(model_path="fine_tunable_model.tflite")
+interpreter = tf.lite.Interpreter(model_path="arbitrary_style_transfer.tflite")
 
 # 函数：动态调整输入张量形状
 def resize_model_input(interpreter, input_details, image_path, input_index):
@@ -27,6 +27,15 @@ def preprocess_image(image_path, target_size=None):
 interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
+
+# 打印所有输入和输出的细节
+print("Inputs:")
+for input_detail in input_details:
+    print(input_detail)
+
+print("Outputs:")
+for output_detail in output_details:
+    print(output_detail)
 
 # 调整内容图片输入张量形状
 content_image_path = "content.jpg"
