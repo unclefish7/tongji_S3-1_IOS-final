@@ -30,11 +30,16 @@ class StyleTransferModel {
             fatalError("Interpreter is not initialized.")
         }
 
-        // 动态获取图片的高度和宽度
-        let contentHeight = Int(contentImage.size.height)
-        let contentWidth = Int(contentImage.size.width)
-        let styleHeight = Int(styleImage.size.height)
-        let styleWidth = Int(styleImage.size.width)
+        // 调整内容图片大小，使其在1000x1000像素以内，保持比例
+        let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 1000, height: 1000))
+
+        // 动态获取调整后内容图片的高度和宽度
+        let contentHeight = Int(resizedContentImage.size.height)
+        let contentWidth = Int(resizedContentImage.size.width)
+
+        // 固定风格图片的高度和宽度为256
+        let styleHeight = 256
+        let styleWidth = 256
 
         do {
             // 调整内容图片输入张量形状 [1, contentHeight, contentWidth, 3]
@@ -58,8 +63,11 @@ class StyleTransferModel {
         }
 
         do {
+            // 调整内容图片大小，使其在1000x1000像素以内，保持比例
+            let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 1000, height: 1000))
+
             // 动态调整输入张量形状
-            resizeInputTensor(contentImage: contentImage, styleImage: styleImage)
+            resizeInputTensor(contentImage: resizedContentImage, styleImage: styleImage)
 
             // 获取动态调整后的张量形状
             let contentTensorShape = try interpreter.input(at: 0).shape
@@ -69,9 +77,12 @@ class StyleTransferModel {
             let contentTensorShapeArray = contentTensorShape.dimensions
             let styleTensorShapeArray = styleTensorShape.dimensions
 
+            // 调整风格图片尺寸为256x256
+            let resizedStyleImage = resizeImage(image: styleImage, targetSize: CGSize(width: 256, height: 256))
+
             // 预处理图片
-            let contentTensor = preprocessImage(image: contentImage, tensorShape: contentTensorShapeArray)
-            let styleTensor = preprocessImage(image: styleImage, tensorShape: styleTensorShapeArray)
+            let contentTensor = preprocessImage(image: resizedContentImage, tensorShape: contentTensorShapeArray)
+            let styleTensor = preprocessImage(image: resizedStyleImage, tensorShape: styleTensorShapeArray)
 
             // 设置输入张量
             try interpreter.copy(contentTensor, toInputAt: 0)
@@ -104,6 +115,8 @@ class StyleTransferModel {
         let height = tensorShape[1]
         let width = tensorShape[2]
 
+        print("Preprocessing image with target size: \(width)x\(height)")
+
         guard let cgImage = image.cgImage else {
             fatalError("Cannot get CGImage from image.")
         }
@@ -113,11 +126,22 @@ class StyleTransferModel {
         }
 
         let rawBytes = CFDataGetBytePtr(pixelData)!
+        let bytesPerPixel = cgImage.bitsPerPixel / cgImage.bitsPerComponent
+        let expectedSize = height * width * bytesPerPixel
+        let actualSize = CFDataGetLength(pixelData)
+
+        print("Expected pixel data size: \(expectedSize), actual size: \(actualSize)")
+        print("Bytes per pixel: \(bytesPerPixel)")
+
+        guard actualSize >= expectedSize else {
+            fatalError("Pixel data size is smaller than expected.")
+        }
+
         var floatArray: [Float] = []
 
         for y in 0..<height {
             for x in 0..<width {
-                let pixelIndex = (y * width + x) * 4
+                let pixelIndex = (y * width + x) * bytesPerPixel
                 let r = Float(rawBytes[pixelIndex]) / 255.0
                 let g = Float(rawBytes[pixelIndex + 1]) / 255.0
                 let b = Float(rawBytes[pixelIndex + 2]) / 255.0
@@ -142,6 +166,49 @@ class StyleTransferModel {
         }
 
         return UIImage.fromByteArray(byteArray, width: Int(size.width), height: Int(size.height))
+    }
+
+    /// 调整内容图片尺寸，使其在1000x1000像素以内，保持比例
+    private func resizeContentImage(image: UIImage, maxSize: CGSize) -> UIImage {
+        let size = image.size
+
+        let widthRatio  = maxSize.width  / size.width
+        let heightRatio = maxSize.height / size.height
+        let scaleFactor = min(widthRatio, heightRatio)
+
+        let newSize = CGSize(width: size.width * scaleFactor, height: size.height * scaleFactor)
+
+        let rect = CGRect(origin: .zero, size: newSize)
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: rect)
+        let newImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+
+        guard let resizedImage = newImage else {
+            fatalError("Failed to resize content image.")
+        }
+
+        print("Resized content image to: \(resizedImage.size.width)x\(resizedImage.size.height)")
+
+        return resizedImage
+    }
+
+    /// 调整图片尺寸
+    private func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
+        // 直接将图像调整为目标尺寸
+        let rect = CGRect(origin: .zero, size: targetSize)
+        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
+        image.draw(in: rect)
+        let newImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+
+        guard let resizedImage = newImage else {
+            fatalError("Failed to resize image.")
+        }
+
+        print("Resized image to: \(resizedImage.size.width)x\(resizedImage.size.height)")
+
+        return resizedImage
     }
 }
 
