@@ -6,7 +6,7 @@ class StyleTransferViewModel: ObservableObject {
     private let model = StyleTransferModel()
 
     @Published var contentImage: UIImage?
-    @Published var styleImage: UIImage?
+    @Published var styleImages: [UIImage] = []
     @Published var stylizedImage: UIImage?
 
     func selectContentImage(_ image: UIImage) {
@@ -14,15 +14,16 @@ class StyleTransferViewModel: ObservableObject {
     }
 
     func selectStyleImage(_ image: UIImage) {
-        styleImage = image
+        styleImages.append(image)
     }
 
     func performStyleTransfer() {
-        guard let contentImage = contentImage, let styleImage = styleImage else {
+        guard let contentImage = contentImage, !styleImages.isEmpty else {
             print("Images not selected.")
             return
         }
-        stylizedImage = model.runInference(contentImage: contentImage, styleImage: styleImage)
+        // 这里只使用第一张风格图片进行风格迁移，后续可以扩展为多风格融合
+        stylizedImage = model.runInference(contentImage: contentImage, styleImage: styleImages[0])
         if stylizedImage != nil {
             print("Style transfer successful.")
         } else {

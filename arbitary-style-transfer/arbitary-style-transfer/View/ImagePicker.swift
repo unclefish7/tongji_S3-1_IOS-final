@@ -1,39 +1,51 @@
 import SwiftUI
-import UIKit
+import PhotosUI
 
-/// 图片选择器，用于从相册中选择图片
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var imageType: String
-    var viewModel: StyleTransferViewModel
+    @ObservedObject var viewModel: StyleTransferViewModel
+    var allowsMultipleSelection: Bool = false
 
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = allowsMultipleSelection ? 0 : 1
+
+        let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
         return picker
     }
 
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        return Coordinator(self)
+        Coordinator(self)
     }
 
-    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
         var parent: ImagePicker
 
         init(_ parent: ImagePicker) {
             self.parent = parent
         }
 
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            guard let image = info[.originalImage] as? UIImage else { return }
-            if parent.imageType == "Content" {
-                parent.viewModel.selectContentImage(image)
-            } else {
-                parent.viewModel.selectStyleImage(image)
-            }
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             picker.dismiss(animated: true)
+
+            for result in results {
+                if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+                    result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] image, error in
+                        guard let self = self, let uiImage = image as? UIImage else { return }
+                        DispatchQueue.main.async {
+                            if self.parent.imageType == "Content" {
+                                self.parent.viewModel.selectContentImage(uiImage)
+                            } else {
+                                self.parent.viewModel.selectStyleImage(uiImage)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
