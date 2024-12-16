@@ -5,6 +5,7 @@ enum NavigationPath {
     case preview
     case strengthModify
     case final
+    case regionalGradient  // 添加新的导航路径
 }
 
 struct StyleTransferView: View {
@@ -40,15 +41,14 @@ struct StyleTransferView: View {
                 case .chooseImage:
                     ChooseImageView(viewModel: viewModel, path: $path)
                 case .preview:
-                    PreviewImageView(viewModel: viewModel, stylizedImages: viewModel.stylizedImages, path: $path)
+                    PreviewImageView(viewModel: viewModel, path: $path)  // 直接传递 viewModel
                 case .strengthModify:
-                    StrengthModifyView(viewModel: viewModel, 
-                                     originalImage: viewModel.originalContentImage ?? UIImage(), 
-                                     stylizedImages: viewModel.stylizedImages,
-                                       path: $path)
+                    StrengthModifyView(viewModel: viewModel, path: $path)  // 直接传递 viewModel
                 case .final:
                     // 预留给最终界面
                     Text("最终结果页面")
+                case .regionalGradient:
+                    RegionalGradientView(viewModel: viewModel, path: $path)  // 添加新的视图
                 }
             }
         }

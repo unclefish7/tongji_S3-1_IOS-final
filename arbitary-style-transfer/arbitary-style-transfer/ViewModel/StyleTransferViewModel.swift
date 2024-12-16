@@ -26,6 +26,8 @@ class StyleTransferViewModel: ObservableObject {
     @Published var resizedContentImage: UIImage?
     private var originalImageSize: CGSize?
 
+    @Published var gradientImage: UIImage?  // 添加这个属性用于显示渐变结果
+
     func selectContentImage(_ image: UIImage) {
         contentImage = image
         originalContentImage = image  // 保存原始图片
@@ -205,8 +207,11 @@ class StyleTransferViewModel: ObservableObject {
     }
     
     // 清理缓存
-    func clearPixelCache() {
+    func clearPixelCache(clearBlendedImage: Bool = true) {
         pixelCache.removeAll()
+        if clearBlendedImage {
+            blendedImage = nil
+        }
     }
 
     func performStyleTransfer() async -> Bool {
@@ -265,5 +270,66 @@ class StyleTransferViewModel: ObservableObject {
         let newImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         return newImage ?? image
+    }
+
+    // 添加区域渐变方法
+    func applyGradient(to image: UIImage, horizontal: Bool, vertical: Bool, radial: Bool, gradientRange: ClosedRange<Float>) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bitsPerComponent = 8
+        
+        var pixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(data: &pixels,
+                                width: width,
+                                height: height,
+                                bitsPerComponent: bitsPerComponent,
+                                bytesPerRow: width * bytesPerPixel,
+                                space: colorSpace,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        let minGradient = gradientRange.lowerBound
+        let maxGradient = gradientRange.upperBound
+        
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = (y * width + x) * bytesPerPixel
+                var gradientFactor: Float = 1.0
+                
+                if horizontal {
+                    gradientFactor *= minGradient + (maxGradient - minGradient) * Float(x) / Float(width)
+                }
+                if vertical {
+                    gradientFactor *= minGradient + (maxGradient - minGradient) * Float(y) / Float(height)
+                }
+                if radial {
+                    let centerX = Float(width) / 2.0
+                    let centerY = Float(height) / 2.0
+                    let distance = sqrt(pow(Float(x) - centerX, 2) + pow(Float(y) - centerY, 2))
+                    let maxDistance = sqrt(pow(centerX, 2) + pow(centerY, 2))
+                    gradientFactor *= minGradient + (maxGradient - minGradient) * distance / maxDistance
+                }
+                
+                for i in 0..<3 {
+                    pixels[index + i] = UInt8(Float(pixels[index + i]) * gradientFactor)
+                }
+            }
+        }
+        
+        let resultContext = CGContext(data: &pixels,
+                                      width: width,
+                                      height: height,
+                                      bitsPerComponent: bitsPerComponent,
+                                      bytesPerRow: width * bytesPerPixel,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        
+        guard let resultImage = resultContext?.makeImage() else { return nil }
+        return UIImage(cgImage: resultImage)
     }
 }

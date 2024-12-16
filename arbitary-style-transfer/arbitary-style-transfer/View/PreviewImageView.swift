@@ -42,14 +42,13 @@ struct BlendingButtonView: View {
 // 主预览视图
 struct PreviewImageView: View {
     @ObservedObject var viewModel: StyleTransferViewModel
-    let stylizedImages: [UIImage]
     @Binding var path: [NavigationPath]  // 改为数组类型
     
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 
-                ForEach(Array(stylizedImages.enumerated()), id: \.offset) { index, image in
+                ForEach(Array(viewModel.stylizedImages.enumerated()), id: \.offset) { index, image in
                     StyleResultView(
                         index: index,
                         stylizedImage: image
