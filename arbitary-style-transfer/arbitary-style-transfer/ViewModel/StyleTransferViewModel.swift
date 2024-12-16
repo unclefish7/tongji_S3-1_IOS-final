@@ -15,6 +15,13 @@ class StyleTransferViewModel: ObservableObject {
     // 添加原始内容图片的引用
     @Published var originalContentImage: UIImage?
 
+    // 添加防抖计时器
+    private var blendTimer: Timer?
+    // 添加缓存
+    private var pixelCache: [String: [UInt8]] = [:]
+
+    @Published var blendedImage: UIImage? // 添加这个属性用于实时显示融合结果
+
     func selectContentImage(_ image: UIImage) {
         contentImage = image
         originalContentImage = image  // 保存原始图片
@@ -77,69 +84,90 @@ class StyleTransferViewModel: ObservableObject {
         return UIImage(cgImage: resultImage)
     }
 
-    // 多风格融合方法
-    func blendMultipleStyles(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) -> UIImage? {
+    // 优化后的多风格融合方法
+    func blendMultipleStyles(original: UIImage, stylizedImages: [UIImage], strengths: [Float], debounceInterval: TimeInterval = 0.1) {
+        // 取消之前的定时器
+        blendTimer?.invalidate()
+        
+        // 创建新的定时器
+        blendTimer = Timer.scheduledTimer(withTimeInterval: debounceInterval, repeats: false) { [weak self] _ in
+            self?.performBlending(original: original, stylizedImages: stylizedImages, strengths: strengths)
+        }
+    }
+    
+    private func performBlending(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) {
         guard !stylizedImages.isEmpty,
               stylizedImages.count == strengths.count,
-              let originalCG = original.cgImage else { return nil }
+              let originalCG = original.cgImage else { return }
         
         let width = originalCG.width
         let height = originalCG.height
         let bytesPerPixel = 4
-        let bitsPerComponent = 8
+        let pixelsCount = width * height * bytesPerPixel
         
-        var originalPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        var resultPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        // 获取或创建缓存的像素数据
+        func getPixelData(for image: UIImage, key: String) -> [UInt8] {
+            if let cached = pixelCache[key] {
+                return cached
+            }
+            
+            var pixels = [UInt8](repeating: 0, count: pixelsCount)
+            if let cgImage = image.cgImage {
+                let context = CGContext(data: &pixels,
+                                      width: width,
+                                      height: height,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: width * bytesPerPixel,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            pixelCache[key] = pixels
+            return pixels
+        }
         
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let context = CGContext(data: &originalPixels,
-                              width: width,
-                              height: height,
-                              bitsPerComponent: bitsPerComponent,
-                              bytesPerRow: width * bytesPerPixel,
-                              space: colorSpace,
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        context?.draw(originalCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+        // 获取原始图像和风格化图像的像素数据
+        let originalPixels = getPixelData(for: original, key: "original")
+        let stylizedPixelsArray = stylizedImages.enumerated().map { index, image in
+            getPixelData(for: image, key: "style\(index)")
+        }
         
-        // 计算总强度
+        // 计算总强度并标准化
         let totalStrength = strengths.reduce(0, +)
         let normalizedStrengths = strengths.map { $0 / totalStrength }
         
-        // 初始化结果像素为原始图像
-        resultPixels = originalPixels
-        
-        // 对每个风格化图像进行混合
-        for (index, stylizedImage) in stylizedImages.enumerated() {
-            guard let stylizedCG = stylizedImage.cgImage else { continue }
-            var stylizedPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        // 使用并行处理进行像素混合
+        var resultPixels = [UInt8](repeating: 0, count: pixelsCount)
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            // 每个像素并行处理
+            DispatchQueue.concurrentPerform(iterations: pixelsCount) { i in
+                var value: Float = Float(originalPixels[i])
+                for (index, stylizedPixels) in stylizedPixelsArray.enumerated() {
+                    value = value * (1 - normalizedStrengths[index]) + Float(stylizedPixels[i]) * normalizedStrengths[index]
+                }
+                resultPixels[i] = UInt8(max(0, min(255, value)))
+            }
             
-            let stylizedContext = CGContext(data: &stylizedPixels,
-                                          width: width,
-                                          height: height,
-                                          bitsPerComponent: bitsPerComponent,
-                                          bytesPerRow: width * bytesPerPixel,
-                                          space: colorSpace,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            stylizedContext?.draw(stylizedCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+            // 创建结果图像
+            let resultContext = CGContext(data: &resultPixels,
+                                        width: width,
+                                        height: height,
+                                        bitsPerComponent: 8,
+                                        bytesPerRow: width * bytesPerPixel,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             
-            // 混合像素
-            for i in 0..<width * height * bytesPerPixel {
-                let currentValue = Float(resultPixels[i])
-                let stylizedValue = Float(stylizedPixels[i])
-                resultPixels[i] = UInt8(max(0, min(255, currentValue * (1 - normalizedStrengths[index]) + stylizedValue * normalizedStrengths[index])))
+            if let resultImage = resultContext?.makeImage().flatMap({ UIImage(cgImage: $0) }) {
+                DispatchQueue.main.async {
+                    self?.blendedImage = resultImage // 更新为新属性
+                }
             }
         }
-        
-        let resultContext = CGContext(data: &resultPixels,
-                                    width: width,
-                                    height: height,
-                                    bitsPerComponent: bitsPerComponent,
-                                    bytesPerRow: width * bytesPerPixel,
-                                    space: colorSpace,
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        
-        guard let resultImage = resultContext?.makeImage() else { return nil }
-        return UIImage(cgImage: resultImage)
+    }
+    
+    // 清理缓存
+    func clearPixelCache() {
+        pixelCache.removeAll()
     }
 
     func performStyleTransfer() async -> Bool {

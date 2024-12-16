@@ -12,7 +12,6 @@ struct StrengthModifyView: View {
     let originalImage: UIImage
     let stylizedImages: [UIImage]
     @State private var strengths: [Float]
-    @State private var currentImage: UIImage?
     
     init(viewModel: StyleTransferViewModel, originalImage: UIImage, stylizedImages: [UIImage]) {
         self.viewModel = viewModel
@@ -29,7 +28,7 @@ struct StrengthModifyView: View {
                     .font(.title)
                     .padding()
                 
-                if let blendedImage = currentImage {
+                if let blendedImage = viewModel.blendedImage {  // 使用 viewModel 的属性
                     Text("融合结果")
                         .font(.headline)
                     Image(uiImage: blendedImage)
@@ -70,16 +69,19 @@ struct StrengthModifyView: View {
         .onAppear {
             updateImage()
         }
+        .onDisappear {
+            viewModel.clearPixelCache()
+            viewModel.blendedImage = nil  // 清理融合图像
+        }
     }
     
     private func updateImage() {
-        if let blendedImage = viewModel.blendMultipleStyles(
+        viewModel.blendMultipleStyles(
             original: originalImage,
             stylizedImages: stylizedImages,
-            strengths: strengths
-        ) {
-            currentImage = blendedImage
-        }
+            strengths: strengths,
+            debounceInterval: 0.1  // 100ms 的防抖间隔
+        )
     }
 }
 

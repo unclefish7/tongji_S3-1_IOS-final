@@ -103,8 +103,8 @@ class StyleTransferModel {
             }
 
             // 将 outputImage 缩放回原来输入时的大小
-            let scaledOutputImage = resizeImage(image: outputImage!, targetSize: contentImage.size)
-            return scaledOutputImage
+//            let scaledOutputImage = resizeImage(image: outputImage!, targetSize: contentImage.size)
+            return outputImage
         } catch {
             print("Error during inference: \(error)")
             return nil
