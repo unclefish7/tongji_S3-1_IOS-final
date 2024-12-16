@@ -77,6 +77,71 @@ class StyleTransferViewModel: ObservableObject {
         return UIImage(cgImage: resultImage)
     }
 
+    // 多风格融合方法
+    func blendMultipleStyles(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) -> UIImage? {
+        guard !stylizedImages.isEmpty,
+              stylizedImages.count == strengths.count,
+              let originalCG = original.cgImage else { return nil }
+        
+        let width = originalCG.width
+        let height = originalCG.height
+        let bytesPerPixel = 4
+        let bitsPerComponent = 8
+        
+        var originalPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        var resultPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(data: &originalPixels,
+                              width: width,
+                              height: height,
+                              bitsPerComponent: bitsPerComponent,
+                              bytesPerRow: width * bytesPerPixel,
+                              space: colorSpace,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(originalCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        // 计算总强度
+        let totalStrength = strengths.reduce(0, +)
+        let normalizedStrengths = strengths.map { $0 / totalStrength }
+        
+        // 初始化结果像素为原始图像
+        resultPixels = originalPixels
+        
+        // 对每个风格化图像进行混合
+        for (index, stylizedImage) in stylizedImages.enumerated() {
+            guard let stylizedCG = stylizedImage.cgImage else { continue }
+            var stylizedPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+            
+            let stylizedContext = CGContext(data: &stylizedPixels,
+                                          width: width,
+                                          height: height,
+                                          bitsPerComponent: bitsPerComponent,
+                                          bytesPerRow: width * bytesPerPixel,
+                                          space: colorSpace,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            stylizedContext?.draw(stylizedCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+            
+            // 混合像素
+            for i in 0..<width * height * bytesPerPixel {
+                let currentValue = Float(resultPixels[i])
+                let stylizedValue = Float(stylizedPixels[i])
+                resultPixels[i] = UInt8(max(0, min(255, currentValue * (1 - normalizedStrengths[index]) + stylizedValue * normalizedStrengths[index])))
+            }
+        }
+        
+        let resultContext = CGContext(data: &resultPixels,
+                                    width: width,
+                                    height: height,
+                                    bitsPerComponent: bitsPerComponent,
+                                    bytesPerRow: width * bytesPerPixel,
+                                    space: colorSpace,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        
+        guard let resultImage = resultContext?.makeImage() else { return nil }
+        return UIImage(cgImage: resultImage)
+    }
+
     func performStyleTransfer() async -> Bool {
         guard let contentImage = contentImage, !styleImages.isEmpty else {
             print("Images not selected.")

@@ -10,54 +10,75 @@ import SwiftUI
 struct StrengthModifyView: View {
     @ObservedObject var viewModel: StyleTransferViewModel
     let originalImage: UIImage
-    let stylizedImage: UIImage
-    @State private var strength: Float = 1.0
+    let stylizedImages: [UIImage]
+    @State private var strengths: [Float]
     @State private var currentImage: UIImage?
     
+    init(viewModel: StyleTransferViewModel, originalImage: UIImage, stylizedImages: [UIImage]) {
+        self.viewModel = viewModel
+        self.originalImage = originalImage
+        self.stylizedImages = stylizedImages
+        self._strengths = State(initialValue: Array(repeating: 1.0 / Float(stylizedImages.count),
+                                                  count: stylizedImages.count))
+    }
+    
     var body: some View {
-        VStack {
-            Text("调整风格迁移强度")
-                .font(.title)
-                .padding()
-            
-            if let displayImage = currentImage {
-                Image(uiImage: displayImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
+        ScrollView {
+            VStack {
+                Text("调整风格融合强度")
+                    .font(.title)
                     .padding()
-            }
-            
-            HStack {
-                Text("原始")
-                Slider(value: $strength, in: 0...1) { editing in
-                    if !editing {
-                        updateImage()
+                
+                if let blendedImage = currentImage {
+                    Text("融合结果")
+                        .font(.headline)
+                    Image(uiImage: blendedImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+                
+                VStack(spacing: 20) {
+                    ForEach(0..<stylizedImages.count, id: \.self) { index in
+                        VStack {
+                            HStack {
+                                Image(uiImage: stylizedImages[index])
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 100)
+                                
+                                VStack {
+                                    Text("风格 #\(index + 1)")
+                                    Slider(value: $strengths[index], in: 0...1) { editing in
+                                        if !editing {
+                                            updateImage()
+                                        }
+                                    }
+                                    .onChange(of: strengths[index]) { _ in
+                                        updateImage()
+                                    }
+                                    Text("强度: \(Int(strengths[index] * 100))%")
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
                     }
                 }
-                .onChange(of: strength) { _ in
-                    updateImage()
-                }
-                Text("风格化")
             }
-            .padding()
-            
-            Text("强度: \(Int(strength * 100))%")
-                .padding()
         }
         .onAppear {
-            currentImage = stylizedImage
             updateImage()
         }
     }
     
     private func updateImage() {
-        if let interpolatedImage = viewModel.interpolateImages(
+        if let blendedImage = viewModel.blendMultipleStyles(
             original: originalImage,
-            stylized: stylizedImage,
-            strength: strength
+            stylizedImages: stylizedImages,
+            strengths: strengths
         ) {
-            currentImage = interpolatedImage
+            currentImage = blendedImage
         }
     }
 }
