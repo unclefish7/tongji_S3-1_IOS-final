@@ -174,6 +174,12 @@ class StyleTransferModel {
     /// 调整内容图片尺寸，使其在1000x1000像素以内，保持比例
     private func resizeContentImage(image: UIImage, maxSize: CGSize) -> UIImage {
         let size = image.size
+        
+        // 如果图片尺寸已经在限制范围内，直接返回原图
+        if size.width <= maxSize.width && size.height <= maxSize.height {
+            print("Content image size already within limits: \(size.width)x\(size.height)")
+            return image
+        }
 
         let widthRatio  = maxSize.width  / size.width
         let heightRatio = maxSize.height / size.height

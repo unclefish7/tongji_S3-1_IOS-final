@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct StyleTransferView: View {
+    @StateObject private var viewModel = StyleTransferViewModel()
+    
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
@@ -10,7 +12,7 @@ struct StyleTransferView: View {
                     .foregroundColor(.blue)
                     .padding()
 
-                NavigationLink(destination: ChooseImageView()) {
+                NavigationLink(destination: ChooseImageView(viewModel: viewModel)) {
                     Text("第一步：上传图片")
                         .font(.title)
                         .fontWeight(.bold)

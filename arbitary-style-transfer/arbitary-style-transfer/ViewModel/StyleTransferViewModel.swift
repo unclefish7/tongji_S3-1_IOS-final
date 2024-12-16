@@ -8,6 +8,9 @@ class StyleTransferViewModel: ObservableObject {
     @Published var contentImage: UIImage?
     @Published var styleImages: [UIImage] = []
     @Published var stylizedImage: UIImage?
+    @Published var stylizedImages: [UIImage] = []
+    @Published var isProcessing = false
+    @Published var processingProgress: Float = 0.0
 
     func selectContentImage(_ image: UIImage) {
         contentImage = image
@@ -17,17 +20,32 @@ class StyleTransferViewModel: ObservableObject {
         styleImages.append(image)
     }
 
-    func performStyleTransfer() {
+    func performStyleTransfer() async -> Bool {
         guard let contentImage = contentImage, !styleImages.isEmpty else {
             print("Images not selected.")
-            return
+            return false
         }
-        // 这里只使用第一张风格图片进行风格迁移，后续可以扩展为多风格融合
-        stylizedImage = model.runInference(contentImage: contentImage, styleImage: styleImages[0])
-        if stylizedImage != nil {
-            print("Style transfer successful.")
-        } else {
-            print("Style transfer failed.")
+
+        DispatchQueue.main.async {
+            self.isProcessing = true
+            self.stylizedImages.removeAll()
+            self.processingProgress = 0.0
         }
+
+        for (index, styleImage) in styleImages.enumerated() {
+            if let stylized = model.runInference(contentImage: contentImage, styleImage: styleImage) {
+                DispatchQueue.main.async {
+                    self.stylizedImages.append(stylized)
+                    self.processingProgress = Float(index + 1) / Float(self.styleImages.count)
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            self.isProcessing = false
+            self.processingProgress = 1.0
+        }
+
+        return !self.stylizedImages.isEmpty
     }
 }

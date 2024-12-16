@@ -8,9 +8,10 @@
 import SwiftUI
 
 struct ChooseImageView: View {
-    @StateObject private var viewModel = StyleTransferViewModel()
+    @ObservedObject var viewModel: StyleTransferViewModel
     @State private var showingImagePicker = false
     @State private var imageType = "Content"
+    @State private var navigateToPreview = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -81,13 +82,28 @@ struct ChooseImageView: View {
 
             Divider().padding(.horizontal)
 
-            Button("下一步：风格调整") {
-                // Navigate to the next view
+            if viewModel.isProcessing {
+                ProgressView("正在生成图片... \(Int(viewModel.processingProgress * 100))%")
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .padding()
+            }
+
+            NavigationLink(destination: PreviewImageView(stylizedImages: viewModel.stylizedImages), isActive: $navigateToPreview) {
+                EmptyView()
+            }
+
+            Button("下一步：生成图片") {
+                Task {
+                    if await viewModel.performStyleTransfer() {
+                        navigateToPreview = true
+                    }
+                }
             }
             .padding()
             .background(Color.blue)
             .foregroundColor(.white)
             .cornerRadius(10)
+            .disabled(viewModel.isProcessing || viewModel.contentImage == nil || viewModel.styleImages.isEmpty)
         }
         .sheet(isPresented: $showingImagePicker) {
             ImagePicker(imageType: $imageType, viewModel: viewModel, allowsMultipleSelection: imageType == "Style")
