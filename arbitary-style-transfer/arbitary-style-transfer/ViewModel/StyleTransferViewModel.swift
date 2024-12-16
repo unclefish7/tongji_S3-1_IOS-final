@@ -109,6 +109,11 @@ class StyleTransferViewModel: ObservableObject {
             self?.performBlending(original: original, stylizedImages: stylizedImages, strengths: strengths)
         }
     }
+
+    // 取消当前的融合操作
+    func cancelBlending() {
+        blendTimer?.invalidate()
+    }
     
     private func performBlending(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) {
         guard !stylizedImages.isEmpty,
@@ -150,16 +155,34 @@ class StyleTransferViewModel: ObservableObject {
         
         // 计算总强度并标准化
         let totalStrength = strengths.reduce(0, +)
-        let normalizedStrengths = strengths.map { $0 / totalStrength }
+        let normalizedStrengths = totalStrength > 0 ? strengths.map { $0 / totalStrength } : strengths
         
-        // 使用并行处理进行像素混合
+        // 如果所有强度都为 0，则直接返回原始图像
+        if totalStrength == 0 {
+            DispatchQueue.main.async {
+                self.blendedImage = self.originalContentImage
+            }
+            return
+        }
+        
+        // 第一次融合：基于每个风格自己的强度和原始图像进行融合
+        var intermediateImages = [[UInt8]](repeating: [UInt8](repeating: 0, count: pixelsCount), count: stylizedImages.count)
+        DispatchQueue.concurrentPerform(iterations: stylizedImages.count) { index in
+            for i in 0..<pixelsCount {
+                let originalValue = Float(originalPixels[i])
+                let stylizedValue = Float(stylizedPixelsArray[index][i])
+                let blendedValue = originalValue * (1 - strengths[index]) + stylizedValue * strengths[index]
+                intermediateImages[index][i] = UInt8(max(0, min(255, blendedValue)))
+            }
+        }
+        
+        // 第二次融合：基于每个风格的强度比例，对上述融合后的多个图像进行二次融合
         var resultPixels = [UInt8](repeating: 0, count: pixelsCount)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            // 每个像素并行处理
             DispatchQueue.concurrentPerform(iterations: pixelsCount) { i in
-                var value: Float = Float(originalPixels[i])
-                for (index, stylizedPixels) in stylizedPixelsArray.enumerated() {
-                    value = value * (1 - normalizedStrengths[index]) + Float(stylizedPixels[i]) * normalizedStrengths[index]
+                var value: Float = 0.0
+                for (index, intermediatePixels) in intermediateImages.enumerated() {
+                    value += Float(intermediatePixels[i]) * normalizedStrengths[index]
                 }
                 resultPixels[i] = UInt8(max(0, min(255, value)))
             }
@@ -198,7 +221,10 @@ class StyleTransferViewModel: ObservableObject {
             self.processingProgress = 0.0
         }
 
+        let dispatchGroup = DispatchGroup()
+
         for (index, styleImage) in styleImages.enumerated() {
+            dispatchGroup.enter()
             if let result = model.runInference(contentImage: contentImage, styleImage: styleImage) {
                 // 保存第一次处理后的调整大小的内容图片
                 if index == 0 {
@@ -211,14 +237,22 @@ class StyleTransferViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self.stylizedImages.append(result.stylizedImage)
                     self.processingProgress = Float(index + 1) / Float(self.styleImages.count)
+                    print("Processed style image \(index + 1) of \(self.styleImages.count)")
+                    dispatchGroup.leave()
                 }
+            } else {
+                dispatchGroup.leave()
             }
         }
 
-        DispatchQueue.main.async {
+        dispatchGroup.notify(queue: .main) {
             self.isProcessing = false
             self.processingProgress = 1.0
+            print("Style transfer completed. Total stylized images: \(self.stylizedImages.count)")
         }
+
+        // 等待所有异步操作完成
+        dispatchGroup.wait()
 
         return !self.stylizedImages.isEmpty
     }

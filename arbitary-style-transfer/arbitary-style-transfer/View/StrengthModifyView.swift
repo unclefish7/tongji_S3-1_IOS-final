@@ -14,6 +14,7 @@ struct StrengthModifyView: View {
     @Binding var path: [NavigationPath]  // 改为数组类型
     @State private var strengths: [Float]
     @State private var isLoading = true  // 添加加载状态
+    @State private var isSliderEnabled = true  // 添加滑动条启用状态
     @Environment(\.dismiss) private var dismiss
     
     init(viewModel: StyleTransferViewModel, originalImage: UIImage, stylizedImages: [UIImage], path: Binding<[NavigationPath]>) {
@@ -70,12 +71,14 @@ struct StrengthModifyView: View {
                                                 Text("风格 #\(index + 1)")
                                                 Slider(value: $strengths[index], in: 0...1) { editing in
                                                     if !editing {
+                                                        // 滑动结束时进行图像融合
                                                         updateImage()
+                                                    } else {
+                                                        // 滑动时取消当前的融合操作
+                                                        viewModel.cancelBlending()
                                                     }
                                                 }
-                                                .onChange(of: strengths[index]) { _ in
-                                                    updateImage()
-                                                }
+                                                .disabled(!isSliderEnabled)  // 根据状态禁用滑动条
                                                 Text("强度: \(Int(strengths[index] * 100))%")
                                             }
                                         }
@@ -114,6 +117,7 @@ struct StrengthModifyView: View {
         }
         .onChange(of: viewModel.blendedImage) { _ in
             isLoading = false
+            isSliderEnabled = true  // 启用滑动条
         }
         .onDisappear {
             viewModel.clearPixelCache()
@@ -123,6 +127,7 @@ struct StrengthModifyView: View {
     
     private func updateImage() {
         isLoading = true
+        isSliderEnabled = false  // 禁用滑动条
         viewModel.blendMultipleStyles(
             original: originalImage,
             stylizedImages: stylizedImages,

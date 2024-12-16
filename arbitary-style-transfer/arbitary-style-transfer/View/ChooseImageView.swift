@@ -93,8 +93,14 @@ struct ChooseImageView: View {
 
                 Button("下一步：生成图片") {
                     Task {
-                        if await viewModel.performStyleTransfer() {
-                            path.append(.preview)  // 使用 append 添加到导航栈
+                        let success = await viewModel.performStyleTransfer()
+                        DispatchQueue.main.async {
+                            if success {
+                                print("Navigating to preview")
+                                path.append(.preview)  // 确保在主线程上更新 path
+                            } else {
+                                print("Style transfer failed or no stylized images generated")
+                            }
                         }
                     }
                 }

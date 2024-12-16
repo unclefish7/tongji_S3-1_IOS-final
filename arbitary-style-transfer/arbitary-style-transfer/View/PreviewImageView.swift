@@ -48,10 +48,6 @@ struct PreviewImageView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Text("生成结果预览")
-                    .font(.title)
-                    .fontWeight(.bold)
-                    .padding()
                 
                 ForEach(Array(stylizedImages.enumerated()), id: \.offset) { index, image in
                     StyleResultView(
