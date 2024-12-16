@@ -45,8 +45,7 @@ struct StyleTransferView: View {
                 case .strengthModify:
                     StrengthModifyView(viewModel: viewModel, path: $path)  // 直接传递 viewModel
                 case .final:
-                    // 预留给最终界面
-                    Text("最终结果页面")
+                    FinalView(viewModel: viewModel, path: $path)  // 添加新的视图
                 case .regionalGradient:
                     RegionalGradientView(viewModel: viewModel, path: $path)  // 添加新的视图
                 }

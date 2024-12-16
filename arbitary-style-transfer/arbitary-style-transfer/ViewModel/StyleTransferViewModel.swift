@@ -24,9 +24,11 @@ class StyleTransferViewModel: ObservableObject {
 
     // 添加属性来存储调整大小后的内容图片和原始尺寸
     @Published var resizedContentImage: UIImage?
-    private var originalImageSize: CGSize?
+    var originalImageSize: CGSize?  // 修改访问级别为 internal
 
     @Published var gradientImage: UIImage?  // 添加这个属性用于显示渐变结果
+
+    @Published var finalImage: UIImage?  // 添加这个属性用于存储最终结果图片
 
     func selectContentImage(_ image: UIImage) {
         contentImage = image
@@ -263,7 +265,7 @@ class StyleTransferViewModel: ObservableObject {
     }
 
     // 添加辅助方法来调整图片大小
-    private func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
+    func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
         let rect = CGRect(origin: .zero, size: targetSize)
         UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
         image.draw(in: rect)
@@ -273,28 +275,38 @@ class StyleTransferViewModel: ObservableObject {
     }
 
     // 添加区域渐变方法
-    func applyGradient(to image: UIImage, horizontal: Bool, vertical: Bool, radial: Bool, gradientRange: ClosedRange<Float>) -> UIImage? {
-        guard let cgImage = image.cgImage else { return nil }
+    func applyGradient(to blendedImage: UIImage, horizontal: Bool, vertical: Bool, radial: Bool, leftHorizontal: Float, rightHorizontal: Float, topVertical: Float, bottomVertical: Float, centerRadial: Float, edgeRadial: Float) -> UIImage? {
+        guard let originalImage = originalContentImage,
+              let originalCG = originalImage.cgImage,
+              let blendedCG = blendedImage.cgImage else { return nil }
         
-        let width = cgImage.width
-        let height = cgImage.height
+        let width = originalCG.width
+        let height = originalCG.height
         let bytesPerPixel = 4
         let bitsPerComponent = 8
         
-        var pixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        var originalPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        var blendedPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        var resultPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
         
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let context = CGContext(data: &pixels,
-                                width: width,
-                                height: height,
-                                bitsPerComponent: bitsPerComponent,
-                                bytesPerRow: width * bytesPerPixel,
-                                space: colorSpace,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let originalContext = CGContext(data: &originalPixels,
+                                        width: width,
+                                        height: height,
+                                        bitsPerComponent: bitsPerComponent,
+                                        bytesPerRow: width * bytesPerPixel,
+                                        space: colorSpace,
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        originalContext?.draw(originalCG, in: CGRect(x: 0, y: 0, width: width, height: height))
         
-        let minGradient = gradientRange.lowerBound
-        let maxGradient = gradientRange.upperBound
+        let blendedContext = CGContext(data: &blendedPixels,
+                                       width: width,
+                                       height: height,
+                                       bitsPerComponent: bitsPerComponent,
+                                       bytesPerRow: width * bytesPerPixel,
+                                       space: colorSpace,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        blendedContext?.draw(blendedCG, in: CGRect(x: 0, y: 0, width: width, height: height))
         
         for y in 0..<height {
             for x in 0..<width {
@@ -302,26 +314,33 @@ class StyleTransferViewModel: ObservableObject {
                 var gradientFactor: Float = 1.0
                 
                 if horizontal {
-                    gradientFactor *= minGradient + (maxGradient - minGradient) * Float(x) / Float(width)
+                    let horizontalGradient = leftHorizontal + (rightHorizontal - leftHorizontal) * Float(x) / Float(width)
+                    gradientFactor *= horizontalGradient
                 }
                 if vertical {
-                    gradientFactor *= minGradient + (maxGradient - minGradient) * Float(y) / Float(height)
+                    let verticalGradient = topVertical + (bottomVertical - topVertical) * Float(y) / Float(height)
+                    gradientFactor *= verticalGradient
                 }
                 if radial {
                     let centerX = Float(width) / 2.0
                     let centerY = Float(height) / 2.0
                     let distance = sqrt(pow(Float(x) - centerX, 2) + pow(Float(y) - centerY, 2))
                     let maxDistance = sqrt(pow(centerX, 2) + pow(centerY, 2))
-                    gradientFactor *= minGradient + (maxGradient - minGradient) * distance / maxDistance
+                    let radialGradient = centerRadial + (edgeRadial - centerRadial) * distance / maxDistance
+                    gradientFactor *= radialGradient
                 }
                 
                 for i in 0..<3 {
-                    pixels[index + i] = UInt8(Float(pixels[index + i]) * gradientFactor)
+                    let originalValue = Float(originalPixels[index + i])
+                    let blendedValue = Float(blendedPixels[index + i])
+                    let interpolatedValue = originalValue * (1 - gradientFactor) + blendedValue * gradientFactor
+                    resultPixels[index + i] = UInt8(max(0, min(255, interpolatedValue)))
                 }
+                resultPixels[index + 3] = originalPixels[index + 3]  // 保持 alpha 通道不变
             }
         }
         
-        let resultContext = CGContext(data: &pixels,
+        let resultContext = CGContext(data: &resultPixels,
                                       width: width,
                                       height: height,
                                       bitsPerComponent: bitsPerComponent,
