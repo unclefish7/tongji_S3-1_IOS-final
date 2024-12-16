@@ -88,7 +88,13 @@ struct ChooseImageView: View {
                     .padding()
             }
 
-            NavigationLink(destination: PreviewImageView(stylizedImages: viewModel.stylizedImages), isActive: $navigateToPreview) {
+            NavigationLink(
+                destination: PreviewImageView(
+                    viewModel: viewModel,
+                    stylizedImages: viewModel.stylizedImages
+                ),
+                isActive: $navigateToPreview
+            ) {
                 EmptyView()
             }
 

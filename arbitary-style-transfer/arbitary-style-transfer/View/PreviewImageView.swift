@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PreviewImageView: View {
+    @ObservedObject var viewModel: StyleTransferViewModel
     let stylizedImages: [UIImage]
     
     var body: some View {
@@ -16,12 +17,24 @@ struct PreviewImageView: View {
                         Text("风格迁移结果 #\(index + 1)")
                             .font(.headline)
                         
-                        Image(uiImage: stylizedImages[index])
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                            .cornerRadius(10)
-                            .padding(.horizontal)
+                        NavigationLink(
+                            destination: StrengthModifyView(
+                                viewModel: viewModel,
+                                originalImage: viewModel.originalContentImage ?? UIImage(),
+                                stylizedImage: stylizedImages[index]
+                            )
+                        ) {
+                            Image(uiImage: stylizedImages[index])
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity)
+                                .cornerRadius(10)
+                                .padding(.horizontal)
+                        }
+                        
+                        Text("点击图片调整强度")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
                 }
             }
