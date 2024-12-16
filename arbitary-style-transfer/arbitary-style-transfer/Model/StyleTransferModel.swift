@@ -2,6 +2,12 @@ import Foundation
 import TensorFlowLite
 import UIKit
 
+struct StyleTransferResult {
+    let stylizedImage: UIImage
+    let resizedContentImage: UIImage
+    let originalSize: CGSize
+}
+
 class StyleTransferModel {
     private var interpreter: Interpreter?
 
@@ -30,12 +36,9 @@ class StyleTransferModel {
             fatalError("Interpreter is not initialized.")
         }
 
-        // 调整内容图片大小，使其在1000x1000像素以内，保持比例
-        let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 1000, height: 1000))
-
         // 动态获取调整后内容图片的高度和宽度
-        let contentHeight = Int(resizedContentImage.size.height)
-        let contentWidth = Int(resizedContentImage.size.width)
+        let contentHeight = Int(contentImage.size.height)
+        let contentWidth = Int(contentImage.size.width)
 
         // 固定风格图片的高度和宽度为256
         let styleHeight = 256
@@ -56,15 +59,16 @@ class StyleTransferModel {
         }
     }
 
-    /// 运行模型推理，返回风格迁移后的图片
-    func runInference(contentImage: UIImage, styleImage: UIImage) -> UIImage? {
+    /// 运行模型推理，返回风格迁移后的图片和调整大小后的原始图片
+    func runInference(contentImage: UIImage, styleImage: UIImage) -> StyleTransferResult? {
         guard let interpreter = interpreter else {
             fatalError("Interpreter is not initialized.")
         }
 
         do {
+            let originalSize = contentImage.size
             // 调整内容图片大小，使其在1000x1000像素以内，保持比例
-            let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 1000, height: 1000))
+            let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 800, height: 800))
 
             // 动态调整输入张量形状
             resizeInputTensor(contentImage: resizedContentImage, styleImage: styleImage)
@@ -102,9 +106,15 @@ class StyleTransferModel {
                 print("Inference failed.")
             }
 
-            // 将 outputImage 缩放回原来输入时的大小
-//            let scaledOutputImage = resizeImage(image: outputImage!, targetSize: contentImage.size)
-            return outputImage
+            // 修改返回值
+            if let outputImage = outputImage {
+                return StyleTransferResult(
+                    stylizedImage: outputImage,
+                    resizedContentImage: resizedContentImage,
+                    originalSize: originalSize
+                )
+            }
+            return nil
         } catch {
             print("Error during inference: \(error)")
             return nil

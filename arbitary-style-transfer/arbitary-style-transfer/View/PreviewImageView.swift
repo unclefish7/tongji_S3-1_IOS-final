@@ -24,22 +24,17 @@ struct StyleResultView: View {
 struct BlendingButtonView: View {
     let viewModel: StyleTransferViewModel
     let stylizedImages: [UIImage]
+    @Binding var path: [NavigationPath]  // 改为数组类型
     
     var body: some View {
-        NavigationLink(
-            destination: StrengthModifyView(
-                viewModel: viewModel,
-                originalImage: viewModel.originalContentImage ?? UIImage(),
-                stylizedImages: stylizedImages
-            )
-        ) {
-            Text("调整风格融合")
-                .font(.headline)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+        Button("调整风格融合") {
+            path.append(.strengthModify)  // 使用 append 添加到导航栈
         }
+        .font(.headline)
+        .padding()
+        .background(Color.blue)
+        .foregroundColor(.white)
+        .cornerRadius(10)
         .padding()
     }
 }
@@ -48,6 +43,7 @@ struct BlendingButtonView: View {
 struct PreviewImageView: View {
     @ObservedObject var viewModel: StyleTransferViewModel
     let stylizedImages: [UIImage]
+    @Binding var path: [NavigationPath]  // 改为数组类型
     
     var body: some View {
         ScrollView {
@@ -64,10 +60,15 @@ struct PreviewImageView: View {
                     )
                 }
                 
-                BlendingButtonView(
-                    viewModel: viewModel,
-                    stylizedImages: stylizedImages
-                )
+                Button("调整风格融合") {
+                    path.append(.strengthModify)  // 使用 append 添加到导航栈
+                }
+                .font(.headline)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .padding()
             }
             .padding()
         }

@@ -22,6 +22,10 @@ class StyleTransferViewModel: ObservableObject {
 
     @Published var blendedImage: UIImage? // 添加这个属性用于实时显示融合结果
 
+    // 添加属性来存储调整大小后的内容图片和原始尺寸
+    @Published var resizedContentImage: UIImage?
+    private var originalImageSize: CGSize?
+
     func selectContentImage(_ image: UIImage) {
         contentImage = image
         originalContentImage = image  // 保存原始图片
@@ -33,7 +37,12 @@ class StyleTransferViewModel: ObservableObject {
 
     // 添加图像插值方法
     func interpolateImages(original: UIImage, stylized: UIImage, strength: Float) -> UIImage? {
-        guard let originalCG = original.cgImage,
+        // 使用 resizedContentImage 而不是原始图片
+        guard let resizedOriginal = resizedContentImage else {
+            return nil
+        }
+
+        guard let originalCG = resizedOriginal.cgImage,
               let stylizedCG = stylized.cgImage else { return nil }
         
         let width = originalCG.width
@@ -81,6 +90,12 @@ class StyleTransferViewModel: ObservableObject {
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         
         guard let resultImage = resultContext?.makeImage() else { return nil }
+
+        // 如果是最终结果，需要调整回原始大小
+        if let originalSize = originalImageSize {
+            return resizeImage(image: UIImage(cgImage: resultImage), targetSize: originalSize)
+        }
+
         return UIImage(cgImage: resultImage)
     }
 
@@ -98,7 +113,8 @@ class StyleTransferViewModel: ObservableObject {
     private func performBlending(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) {
         guard !stylizedImages.isEmpty,
               stylizedImages.count == strengths.count,
-              let originalCG = original.cgImage else { return }
+              let resizedOriginal = resizedContentImage, // 使用调整大小后的图片
+              let originalCG = resizedOriginal.cgImage else { return }
         
         let width = originalCG.width
         let height = originalCG.height
@@ -126,8 +142,8 @@ class StyleTransferViewModel: ObservableObject {
             return pixels
         }
         
-        // 获取原始图像和风格化图像的像素数据
-        let originalPixels = getPixelData(for: original, key: "original")
+        // 获取调整大小后的原始图像和风格化图像的像素数据
+        let originalPixels = getPixelData(for: resizedOriginal, key: "original")
         let stylizedPixelsArray = stylizedImages.enumerated().map { index, image in
             getPixelData(for: image, key: "style\(index)")
         }
@@ -159,7 +175,7 @@ class StyleTransferViewModel: ObservableObject {
             
             if let resultImage = resultContext?.makeImage().flatMap({ UIImage(cgImage: $0) }) {
                 DispatchQueue.main.async {
-                    self?.blendedImage = resultImage // 更新为新属性
+                    self?.blendedImage = resultImage  // 这会触发 StrengthModifyView 中的 onChange
                 }
             }
         }
@@ -183,9 +199,17 @@ class StyleTransferViewModel: ObservableObject {
         }
 
         for (index, styleImage) in styleImages.enumerated() {
-            if let stylized = model.runInference(contentImage: contentImage, styleImage: styleImage) {
+            if let result = model.runInference(contentImage: contentImage, styleImage: styleImage) {
+                // 保存第一次处理后的调整大小的内容图片
+                if index == 0 {
+                    DispatchQueue.main.async {
+                        self.resizedContentImage = result.resizedContentImage
+                        self.originalImageSize = result.originalSize
+                    }
+                }
+                
                 DispatchQueue.main.async {
-                    self.stylizedImages.append(stylized)
+                    self.stylizedImages.append(result.stylizedImage)
                     self.processingProgress = Float(index + 1) / Float(self.styleImages.count)
                 }
             }
@@ -197,5 +221,15 @@ class StyleTransferViewModel: ObservableObject {
         }
 
         return !self.stylizedImages.isEmpty
+    }
+
+    // 添加辅助方法来调整图片大小
+    private func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
+        let rect = CGRect(origin: .zero, size: targetSize)
+        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
+        image.draw(in: rect)
+        let newImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return newImage ?? image
     }
 }
