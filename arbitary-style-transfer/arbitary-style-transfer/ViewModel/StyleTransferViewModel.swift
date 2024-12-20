@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreImage
 
 /// ViewModel 负责管理数据流和业务逻辑
 class StyleTransferViewModel: ObservableObject {
@@ -30,6 +31,8 @@ class StyleTransferViewModel: ObservableObject {
 
     @Published var finalImage: UIImage?  // 添加这个属性用于存储最终结果图片
 
+    private let ciContext = CIContext()
+
     func selectContentImage(_ image: UIImage) {
         contentImage = image
         originalContentImage = image  // 保存原始图片
@@ -39,78 +42,12 @@ class StyleTransferViewModel: ObservableObject {
         styleImages.append(image)
     }
 
-    // 添加图像插值方法
-    func interpolateImages(original: UIImage, stylized: UIImage, strength: Float) -> UIImage? {
-        // 使用 resizedContentImage 而不是原始图片
-        guard let resizedOriginal = resizedContentImage else {
-            return nil
-        }
-
-        guard let originalCG = resizedOriginal.cgImage,
-              let stylizedCG = stylized.cgImage else { return nil }
-        
-        let width = originalCG.width
-        let height = originalCG.height
-        let bytesPerPixel = 4
-        let bitsPerComponent = 8
-        
-        var originalPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        var stylizedPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        var resultPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let context = CGContext(data: &originalPixels,
-                              width: width,
-                              height: height,
-                              bitsPerComponent: bitsPerComponent,
-                              bytesPerRow: width * bytesPerPixel,
-                              space: colorSpace,
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        context?.draw(originalCG, in: CGRect(x: 0, y: 0, width: width, height: height))
-        
-        let stylizedContext = CGContext(data: &stylizedPixels,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: bitsPerComponent,
-                                      bytesPerRow: width * bytesPerPixel,
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        stylizedContext?.draw(stylizedCG, in: CGRect(x: 0, y: 0, width: width, height: height))
-        
-        // 执行像素插值
-        for i in 0..<width * height * bytesPerPixel {
-            let originalValue = Float(originalPixels[i])
-            let stylizedValue = Float(stylizedPixels[i])
-            let interpolatedValue = originalValue * (1 - strength) + stylizedValue * strength
-            resultPixels[i] = UInt8(max(0, min(255, interpolatedValue)))
-        }
-        
-        let resultContext = CGContext(data: &resultPixels,
-                                    width: width,
-                                    height: height,
-                                    bitsPerComponent: bitsPerComponent,
-                                    bytesPerRow: width * bytesPerPixel,
-                                    space: colorSpace,
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        
-        guard let resultImage = resultContext?.makeImage() else { return nil }
-
-        // 如果是最终结果，需要调整回原始大小
-        if let originalSize = originalImageSize {
-            return resizeImage(image: UIImage(cgImage: resultImage), targetSize: originalSize)
-        }
-
-        return UIImage(cgImage: resultImage)
-    }
-
-    // 优化后的多风格融合方法
+    // 重构的多风格融合方法
     func blendMultipleStyles(original: UIImage, stylizedImages: [UIImage], strengths: [Float], debounceInterval: TimeInterval = 0.1) {
-        // 取消之前的定时器
         blendTimer?.invalidate()
         
-        // 创建新的定时器
         blendTimer = Timer.scheduledTimer(withTimeInterval: debounceInterval, repeats: false) { [weak self] _ in
-            self?.performBlending(original: original, stylizedImages: stylizedImages, strengths: strengths)
+            self?.performCIBlending(original: original, stylizedImages: stylizedImages, strengths: strengths)
         }
     }
 
@@ -119,90 +56,75 @@ class StyleTransferViewModel: ObservableObject {
         blendTimer?.invalidate()
     }
     
-    private func performBlending(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) {
+    private func performCIBlending(original: UIImage, stylizedImages: [UIImage], strengths: [Float]) {
         guard !stylizedImages.isEmpty,
               stylizedImages.count == strengths.count,
-              let resizedOriginal = resizedContentImage, // 使用调整大小后的图片
-              let originalCG = resizedOriginal.cgImage else { return }
+              let originalCIImage = CIImage(image: original) else { return }
         
-        let width = originalCG.width
-        let height = originalCG.height
-        let bytesPerPixel = 4
-        let pixelsCount = width * height * bytesPerPixel
+        // 过滤掉强度为 0 的风格
+        let validStyles = zip(stylizedImages, strengths)
+            .enumerated()
+            .filter { _, pair in pair.1 > 0 }
+            .map { index, pair in (index, pair.0, pair.1) }
         
-        // 获取或创建缓存的像素数据
-        func getPixelData(for image: UIImage, key: String) -> [UInt8] {
-            if let cached = pixelCache[key] {
-                return cached
-            }
-            
-            var pixels = [UInt8](repeating: 0, count: pixelsCount)
-            if let cgImage = image.cgImage {
-                let context = CGContext(data: &pixels,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: width * bytesPerPixel,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-                context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            }
-            pixelCache[key] = pixels
-            return pixels
-        }
-        
-        // 获取调整大小后的原始图像和风格化图像的像素数据
-        let originalPixels = getPixelData(for: resizedOriginal, key: "original")
-        let stylizedPixelsArray = stylizedImages.enumerated().map { index, image in
-            getPixelData(for: image, key: "style\(index)")
-        }
-        
-        // 计算总强度并标准化
-        let totalStrength = strengths.reduce(0, +)
-        let normalizedStrengths = totalStrength > 0 ? strengths.map { $0 / totalStrength } : strengths
-        
-        // 如果所有强度都为 0，则直接返回原始图像
-        if totalStrength == 0 {
+        // 如果没有有效的风格（所有强度都为 0），返回原始图像
+        if validStyles.isEmpty {
             DispatchQueue.main.async {
                 self.blendedImage = self.originalContentImage
             }
             return
         }
         
-        // 第一次融合：基于每个风格自己的强度和原始图像进行融合
-        var intermediateImages = [[UInt8]](repeating: [UInt8](repeating: 0, count: pixelsCount), count: stylizedImages.count)
-        DispatchQueue.concurrentPerform(iterations: stylizedImages.count) { index in
-            for i in 0..<pixelsCount {
-                let originalValue = Float(originalPixels[i])
-                let stylizedValue = Float(stylizedPixelsArray[index][i])
-                let blendedValue = originalValue * (1 - strengths[index]) + stylizedValue * strengths[index]
-                intermediateImages[index][i] = UInt8(max(0, min(255, blendedValue)))
+        // 将有效的风格化图像转换为 CIImage
+        let validCIImages = validStyles.compactMap { _, image, _ in CIImage(image: image) }
+        guard validCIImages.count == validStyles.count else { return }
+        
+        // 第一阶段：每个有效的风格图像与原始图像按各自强度融合
+        let intermediateResults = zip(validCIImages, validStyles).compactMap { (stylizedImage, styleInfo) -> CIImage? in
+            guard let blendFilter = CIFilter(name: "CIBlendWithMask") else { return nil }
+            
+            let strength = styleInfo.2 // 获取风格强度
+            let maskColor = CIColor(red: CGFloat(strength), green: CGFloat(strength), blue: CGFloat(strength))
+            let maskImage = CIImage(color: maskColor).cropped(to: originalCIImage.extent)
+            
+            blendFilter.setValue(originalCIImage, forKey: kCIInputBackgroundImageKey)
+            blendFilter.setValue(stylizedImage, forKey: kCIInputImageKey)
+            blendFilter.setValue(maskImage, forKey: kCIInputMaskImageKey)
+            
+            return blendFilter.outputImage
+        }
+        
+        guard !intermediateResults.isEmpty else { return }
+        
+        // 计算有效风格的标准化强度
+        let totalValidStrength = validStyles.map { $0.2 }.reduce(0, +)
+        let normalizedStrengths = validStyles.map { $0.2 / totalValidStrength }
+        
+        // 第二阶段：基于有效风格的强度比例融合
+        var currentResult = intermediateResults[0]
+        
+        for i in 1..<intermediateResults.count {
+            guard let blendFilter = CIFilter(name: "CIBlendWithMask") else { continue }
+            
+            let relativeStrength = normalizedStrengths[i] / (normalizedStrengths[i-1] + normalizedStrengths[i])
+            let maskColor = CIColor(red: CGFloat(relativeStrength), green: CGFloat(relativeStrength), blue: CGFloat(relativeStrength))
+            let maskImage = CIImage(color: maskColor).cropped(to: currentResult.extent)
+            
+            blendFilter.setValue(currentResult, forKey: kCIInputBackgroundImageKey)
+            blendFilter.setValue(intermediateResults[i], forKey: kCIInputImageKey)
+            blendFilter.setValue(maskImage, forKey: kCIInputMaskImageKey)
+            
+            if let output = blendFilter.outputImage {
+                currentResult = output
             }
         }
         
-        // 第二次融合：基于每个风格的强度比例，对上述融合后的多个图像进行二次融合
-        var resultPixels = [UInt8](repeating: 0, count: pixelsCount)
+        // 渲染最终结果
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            DispatchQueue.concurrentPerform(iterations: pixelsCount) { i in
-                var value: Float = 0.0
-                for (index, intermediatePixels) in intermediateImages.enumerated() {
-                    value += Float(intermediatePixels[i]) * normalizedStrengths[index]
-                }
-                resultPixels[i] = UInt8(max(0, min(255, value)))
-            }
-            
-            // 创建结果图像
-            let resultContext = CGContext(data: &resultPixels,
-                                        width: width,
-                                        height: height,
-                                        bitsPerComponent: 8,
-                                        bytesPerRow: width * bytesPerPixel,
-                                        space: CGColorSpaceCreateDeviceRGB(),
-                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            
-            if let resultImage = resultContext?.makeImage().flatMap({ UIImage(cgImage: $0) }) {
+            if let cgImage = self?.ciContext.createCGImage(currentResult, from: currentResult.extent) {
+                let finalImage = UIImage(cgImage: cgImage)
                 DispatchQueue.main.async {
-                    self?.blendedImage = resultImage  // 这会触发 StrengthModifyView 中的 onChange
+                    self?.blendedImage = finalImage
                 }
             }
         }
@@ -266,89 +188,153 @@ class StyleTransferViewModel: ObservableObject {
 
     // 添加辅助方法来调整图片大小
     func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
-        let rect = CGRect(origin: .zero, size: targetSize)
-        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
-        image.draw(in: rect)
-        let newImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        return newImage ?? image
+        guard let cgImage = image.cgImage,
+              let scaledFilter = CIFilter(name: "CILanczosScaleTransform") else {
+            return image
+        }
+        
+        let ciImage = CIImage(cgImage: cgImage)
+        
+        // 计算缩放比例
+        let scale = min(
+            targetSize.width / ciImage.extent.width,
+            targetSize.height / ciImage.extent.height
+        )
+        
+        // 设置 Lanczos 缩放参数
+        scaledFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        scaledFilter.setValue(scale, forKey: kCIInputScaleKey)
+        scaledFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+        
+        guard let outputImage = scaledFilter.outputImage else { return image }
+        
+        // 应用锐化滤镜
+        guard let sharpenFilter = CIFilter(name: "CIUnsharpMask") else { return image }
+        sharpenFilter.setValue(outputImage, forKey: kCIInputImageKey)
+        sharpenFilter.setValue(0.5, forKey: kCIInputRadiusKey)        // 锐化半径
+        sharpenFilter.setValue(1.0, forKey: kCIInputIntensityKey)     // 锐化强度
+        
+        guard let finalOutput = sharpenFilter.outputImage,
+              let cgFinal = ciContext.createCGImage(finalOutput, from: finalOutput.extent) else {
+            return image
+        }
+        
+        return UIImage(cgImage: cgFinal)
     }
 
     // 添加区域渐变方法
     func applyGradient(to blendedImage: UIImage, horizontal: Bool, vertical: Bool, radial: Bool, leftHorizontal: Float, rightHorizontal: Float, topVertical: Float, bottomVertical: Float, centerRadial: Float, edgeRadial: Float) -> UIImage? {
-        guard let originalImage = originalContentImage,
-              let originalCG = originalImage.cgImage,
-              let blendedCG = blendedImage.cgImage else { return nil }
+        guard let originalImage = resizedContentImage,
+              let ciOriginal = CIImage(image: originalImage),
+              let ciBlended = CIImage(image: blendedImage) else { return nil }
         
-        let width = originalCG.width
-        let height = originalCG.height
-        let bytesPerPixel = 4
-        let bitsPerComponent = 8
+        // 创建一个基础遮罩
+        var maskImage = CIImage(color: CIColor(red: 1, green: 1, blue: 1))
+            .cropped(to: ciOriginal.extent)
         
-        var originalPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        var blendedPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        var resultPixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+        var hasGradient = false
         
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let originalContext = CGContext(data: &originalPixels,
-                                        width: width,
-                                        height: height,
-                                        bitsPerComponent: bitsPerComponent,
-                                        bytesPerRow: width * bytesPerPixel,
-                                        space: colorSpace,
-                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        originalContext?.draw(originalCG, in: CGRect(x: 0, y: 0, width: width, height: height))
-        
-        let blendedContext = CGContext(data: &blendedPixels,
-                                       width: width,
-                                       height: height,
-                                       bitsPerComponent: bitsPerComponent,
-                                       bytesPerRow: width * bytesPerPixel,
-                                       space: colorSpace,
-                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        blendedContext?.draw(blendedCG, in: CGRect(x: 0, y: 0, width: width, height: height))
-        
-        for y in 0..<height {
-            for x in 0..<width {
-                let index = (y * width + x) * bytesPerPixel
-                var gradientFactor: Float = 1.0
-                
-                if horizontal {
-                    let horizontalGradient = leftHorizontal + (rightHorizontal - leftHorizontal) * Float(x) / Float(width)
-                    gradientFactor *= horizontalGradient
-                }
-                if vertical {
-                    let verticalGradient = topVertical + (bottomVertical - topVertical) * Float(y) / Float(height)
-                    gradientFactor *= verticalGradient
-                }
-                if radial {
-                    let centerX = Float(width) / 2.0
-                    let centerY = Float(height) / 2.0
-                    let distance = sqrt(pow(Float(x) - centerX, 2) + pow(Float(y) - centerY, 2))
-                    let maxDistance = sqrt(pow(centerX, 2) + pow(centerY, 2))
-                    let radialGradient = centerRadial + (edgeRadial - centerRadial) * distance / maxDistance
-                    gradientFactor *= radialGradient
-                }
-                
-                for i in 0..<3 {
-                    let originalValue = Float(originalPixels[index + i])
-                    let blendedValue = Float(blendedPixels[index + i])
-                    let interpolatedValue = originalValue * (1 - gradientFactor) + blendedValue * gradientFactor
-                    resultPixels[index + i] = UInt8(max(0, min(255, interpolatedValue)))
-                }
-                resultPixels[index + 3] = originalPixels[index + 3]  // 保持 alpha 通道不变
+        if (horizontal) {
+            hasGradient = true
+            guard let horizontalGradient = CIFilter(name: "CILinearGradient") else { return nil }
+            let startVector = CIVector(x: ciOriginal.extent.minX, y: ciOriginal.extent.midY)
+            let endVector = CIVector(x: ciOriginal.extent.maxX, y: ciOriginal.extent.midY)
+            horizontalGradient.setValue(startVector, forKey: "inputPoint0")
+            horizontalGradient.setValue(endVector, forKey: "inputPoint1")
+            horizontalGradient.setValue(CIColor(red: CGFloat(leftHorizontal), green: CGFloat(leftHorizontal), blue: CGFloat(leftHorizontal)), forKey: "inputColor0")
+            horizontalGradient.setValue(CIColor(red: CGFloat(rightHorizontal), green: CGFloat(rightHorizontal), blue: CGFloat(rightHorizontal)), forKey: "inputColor1")
+            
+            if let horizontalMask = horizontalGradient.outputImage {
+                maskImage = horizontalMask
             }
         }
         
-        let resultContext = CGContext(data: &resultPixels,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: bitsPerComponent,
-                                      bytesPerRow: width * bytesPerPixel,
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        if (vertical) {
+            hasGradient = true
+            guard let verticalGradient = CIFilter(name: "CILinearGradient") else { return nil }
+            let startVector = CIVector(x: ciOriginal.extent.midX, y: ciOriginal.extent.maxY)  // 交换起点终点
+            let endVector = CIVector(x: ciOriginal.extent.midX, y: ciOriginal.extent.minY)
+            verticalGradient.setValue(startVector, forKey: "inputPoint0")
+            verticalGradient.setValue(endVector, forKey: "inputPoint1")
+            // 交换颜色的设置顺序
+            verticalGradient.setValue(CIColor(red: CGFloat(topVertical), green: CGFloat(topVertical), blue: CGFloat(topVertical)), forKey: "inputColor0")
+            verticalGradient.setValue(CIColor(red: CGFloat(bottomVertical), green: CGFloat(bottomVertical), blue: CGFloat(bottomVertical)), forKey: "inputColor1")
+            
+            if let verticalMask = verticalGradient.outputImage {
+                if (horizontal) {
+                    // 如果已经有水平渐变，则使用乘法混合
+                    guard let multiply = CIFilter(name: "CIMultiplyCompositing") else { return nil }
+                    multiply.setValue(maskImage, forKey: kCIInputBackgroundImageKey)
+                    multiply.setValue(verticalMask, forKey: kCIInputImageKey)
+                    if let multiplied = multiply.outputImage {
+                        maskImage = multiplied
+                    }
+                } else {
+                    maskImage = verticalMask
+                }
+            }
+        }
         
-        guard let resultImage = resultContext?.makeImage() else { return nil }
-        return UIImage(cgImage: resultImage)
+        if (radial) {
+            hasGradient = true
+            guard let radialGradient = CIFilter(name: "CIGaussianGradient") else { return nil }
+            let center = CIVector(x: ciOriginal.extent.midX, y: ciOriginal.extent.midY)
+            let radius = Float(max(ciOriginal.extent.width, ciOriginal.extent.height)) * 0.7
+            
+            radialGradient.setValue(center, forKey: "inputCenter")
+            radialGradient.setValue(radius, forKey: "inputRadius")
+            // 修正中心和边缘的颜色设置顺序
+            radialGradient.setValue(CIColor(red: CGFloat(centerRadial), green: CGFloat(centerRadial), blue: CGFloat(centerRadial)), forKey: "inputColor0")
+            radialGradient.setValue(CIColor(red: CGFloat(edgeRadial), green: CGFloat(edgeRadial), blue: CGFloat(edgeRadial)), forKey: "inputColor1")
+            
+            if let radialMask = radialGradient.outputImage?.cropped(to: ciOriginal.extent) {
+                if (horizontal || vertical) {
+                    // 如果已经有其他渐变，则使用乘法混合
+                    guard let multiply = CIFilter(name: "CIMultiplyCompositing") else { return nil }
+                    multiply.setValue(maskImage, forKey: kCIInputBackgroundImageKey)
+                    multiply.setValue(radialMask, forKey: kCIInputImageKey)
+                    if let multiplied = multiply.outputImage {
+                        maskImage = multiplied
+                    }
+                } else {
+                    maskImage = radialMask
+                }
+            }
+        }
+        
+        // 如果没有启用任何渐变，返回原始的风格迁移图像
+        if (!hasGradient) {
+            return blendedImage
+        }
+        
+        // 使用遮罩混合原始图像和风格化图像
+        guard let blendFilter = CIFilter(name: "CIBlendWithMask") else { return nil }
+        blendFilter.setValue(ciOriginal, forKey: kCIInputBackgroundImageKey)
+        blendFilter.setValue(ciBlended, forKey: kCIInputImageKey)
+        blendFilter.setValue(maskImage, forKey: kCIInputMaskImageKey)
+        
+        guard let outputImage = blendFilter.outputImage else { return nil }
+        
+        // 渲染最终结果
+        if let cgImage = ciContext.createCGImage(outputImage, from: outputImage.extent) {
+            return UIImage(cgImage: cgImage)
+        }
+        
+        return nil
+    }
+    
+    func reset() {
+        // 重置所有状态
+        contentImage = nil
+        styleImages.removeAll()
+        stylizedImage = nil
+        stylizedImages.removeAll()
+        originalContentImage = nil
+        blendedImage = nil
+        resizedContentImage = nil
+        gradientImage = nil
+        finalImage = nil
+        originalImageSize = nil
+        clearPixelCache()
     }
 }

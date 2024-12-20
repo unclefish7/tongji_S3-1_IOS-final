@@ -18,7 +18,8 @@ struct StrengthModifyView: View {
     init(viewModel: StyleTransferViewModel, path: Binding<[NavigationPath]>) {
         self.viewModel = viewModel
         self._path = path
-        self._strengths = State(initialValue: Array(repeating: 1.0 / Float(viewModel.stylizedImages.count),
+        // 修改初始强度值为 1.0（满强度）
+        self._strengths = State(initialValue: Array(repeating: 1.0,
                                                   count: viewModel.stylizedImages.count))
     }
     
@@ -26,13 +27,21 @@ struct StrengthModifyView: View {
         NavigationView {
             ZStack {
                 VStack(spacing: 0) {
+                    // 固定在顶部的融合结果预览
+                    BlendedImageView(viewModel: viewModel, isLoading: $isLoading)
+                        .frame(height: UIScreen.main.bounds.height * 0.4) // 固定高度为屏幕的40%
+                    
+                    // 可滚动的滑块区域
                     ScrollView {
-                        VStack {
-                            BlendedImageView(viewModel: viewModel, isLoading: $isLoading)
-                            StrengthSlidersView(viewModel: viewModel, strengths: $strengths, isSliderEnabled: $isSliderEnabled, updateImage: updateImage, cancelBlending: viewModel.cancelBlending)
-                        }
+                        StrengthSlidersView(viewModel: viewModel, 
+                                          strengths: $strengths, 
+                                          isSliderEnabled: $isSliderEnabled, 
+                                          updateImage: updateImage, 
+                                          cancelBlending: viewModel.cancelBlending)
+                            .padding(.vertical)
                     }
                     
+                    // 底部确认按钮
                     ConfirmButton(path: $path, viewModel: viewModel)
                 }
             }
@@ -61,7 +70,7 @@ struct StrengthModifyView: View {
         isLoading = true
         isSliderEnabled = false  // 禁用滑动条
         viewModel.blendMultipleStyles(
-            original: viewModel.originalContentImage ?? UIImage(),
+            original: viewModel.resizedContentImage ?? UIImage(),
             stylizedImages: viewModel.stylizedImages,
             strengths: strengths,
             debounceInterval: 0.1  // 100ms 的防抖间隔
@@ -79,18 +88,17 @@ struct BlendedImageView: View {
                 VStack {
                     Text("融合结果")
                         .font(.headline)
+                        .padding(.top, 8)
                     Image(uiImage: blendedImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                        .padding(.horizontal)
                 }
             }
             
             if isLoading {
                 Color.black
                     .opacity(0.5)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 ProgressView("正在生成融合效果...")
                     .progressViewStyle(CircularProgressViewStyle())

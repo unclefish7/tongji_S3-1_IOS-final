@@ -15,69 +15,94 @@ struct ChooseImageView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 中间可滚动内容
             ScrollView {
-                VStack(spacing: 20) {
-                    Divider()
-
-                    HStack {
-                        Button("导入内容图片") {
+                VStack(spacing: 30) {
+                    // 内容图片上传区域
+                    VStack(spacing: 15) {
+                        Text("内容图片")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                        
+                        Button {
                             imageType = "Content"
                             showingImagePicker = true
-                        }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-
-                        Button("导入风格图片") {
-                            imageType = "Style"
-                            showingImagePicker = true
-                        }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    .padding()
-
-                    Divider()
-
-                    VStack {
-                        Text("已导入内容图片：")
-                            .font(.headline)
-                        if let contentImage = viewModel.contentImage {
-                            Image(uiImage: contentImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 150, height: 150)
-                                .clipped()
-                                .cornerRadius(10)
-                        }
-                    }
-                    .padding()
-
-                    Divider()
-
-                    VStack {
-                        Text("已导入风格图片：")
-                            .font(.headline)
-                        ScrollView(.horizontal) {
-                            HStack {
-                                ForEach(viewModel.styleImages, id: \.self) { styleImage in
-                                    Image(uiImage: styleImage)
+                        } label: {
+                            if let contentImage = viewModel.contentImage {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: contentImage)
                                         .resizable()
                                         .scaledToFit()
-                                        .frame(width: 100, height: 100)
-                                        .clipped()
+                                        .frame(width: 200, height: 200)
                                         .cornerRadius(10)
+                                    
+                                    // 添加删除按钮
+                                    Button {
+                                        viewModel.contentImage = nil
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.title2)
+                                            .foregroundColor(.red)
+                                            .background(Circle().fill(Color.white))
+                                    }
+                                    .offset(x: 8, y: -8)
                                 }
+                            } else {
+                                DashedUploadButton(title: "点击上传内容图片")
+                                    .frame(width: 200, height: 200)
                             }
                         }
                     }
                     .padding()
-
-                    Divider()
+                    
+                    // 风格图片上传区域
+                    VStack(spacing: 15) {
+                        Text("风格图片")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                        
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 15) {
+                                // 添加风格图片按钮
+                                Button {
+                                    imageType = "Style"
+                                    showingImagePicker = true
+                                } label: {
+                                    DashedUploadButton(title: "添加风格图片")
+                                        .frame(width: 150, height: 150)
+                                }
+                                
+                                // 显示已选择的风格图片
+                                ForEach(viewModel.styleImages.indices, id: \.self) { index in
+                                    ZStack {
+                                        Image(uiImage: viewModel.styleImages[index])
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 150, height: 150)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        
+                                        // 添加删除按钮
+                                        Button {
+                                            viewModel.styleImages.remove(at: index)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.title2)
+                                                .foregroundStyle(.red)
+                                                .background(
+                                                    Circle()
+                                                        .fill(.white)
+                                                        .frame(width: 24, height: 24)
+                                                )
+                                                .padding(8)
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                                    }
+                                    .frame(width: 150, height: 150)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    .padding()
 
                     if viewModel.isProcessing {
                         ProgressView("正在生成图片... \(Int(viewModel.processingProgress * 100))%")
@@ -119,6 +144,29 @@ struct ChooseImageView: View {
         .sheet(isPresented: $showingImagePicker) {
             ImagePicker(imageType: $imageType, viewModel: viewModel, allowsMultipleSelection: imageType == "Style")
         }
+    }
+}
+
+// 添加虚线上传按钮组件
+struct DashedUploadButton: View {
+    let title: String
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 30))
+                .foregroundColor(.blue)
+            
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [5]))
+                .foregroundColor(.gray.opacity(0.3))
+        )
     }
 }
 

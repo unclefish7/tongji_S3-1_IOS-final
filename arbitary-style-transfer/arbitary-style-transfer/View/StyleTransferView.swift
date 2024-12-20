@@ -13,29 +13,62 @@ struct StyleTransferView: View {
     @State private var path = [NavigationPath]()  // 改为数组类型
     
     var body: some View {
-        NavigationStack(path: $path) {  // 使用 path 绑定
-            VStack(spacing: 20) {
-                Text("任意风格迁移")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundColor(.blue)
-                    .padding()
-
-                Button {
-                    path.append(.chooseImage)  // 添加到导航路径
-                } label: {
-                    Text("第一步：上传图片")
-                        .font(.title)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+        NavigationStack(path: $path) {
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.blue.opacity(0.1), Color.white]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
+                VStack(spacing: 30) {
+                    Spacer()
+                    
+                    Text("艺术风格迁移")
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .padding()
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                }
+                        .shadow(color: .gray.opacity(0.3), radius: 5, x: 0, y: 3)
+                        .multilineTextAlignment(.center)
 
-                Spacer()
+                    Button {
+                        path.append(.chooseImage)
+                    } label: {
+                        HStack {
+                            Image(systemName: "photo.fill")
+                                .font(.title2)
+                            Text("开始创作")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                        }
+                        .frame(minWidth: 200)
+                        .padding()
+                        .background(
+                            LinearGradient(
+                                colors: [.blue, .purple.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(15)
+                        .shadow(color: .gray.opacity(0.4), radius: 6, x: 0, y: 4)
+                    }
+                    .buttonStyle(ScaleButtonStyle())
+
+                    Spacer()
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .multilineTextAlignment(.center)
             }
-            .padding()
             .navigationDestination(for: NavigationPath.self) { path in
                 switch path {
                 case .chooseImage:
@@ -51,5 +84,14 @@ struct StyleTransferView: View {
                 }
             }
         }
+    }
+}
+
+// 添加按钮动画效果
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
     }
 }
