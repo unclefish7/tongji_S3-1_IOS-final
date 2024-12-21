@@ -256,7 +256,6 @@ class StyleTransferViewModel: ObservableObject {
             let endVector = CIVector(x: ciOriginal.extent.midX, y: ciOriginal.extent.minY)
             verticalGradient.setValue(startVector, forKey: "inputPoint0")
             verticalGradient.setValue(endVector, forKey: "inputPoint1")
-            // 交换颜色的设置顺序
             verticalGradient.setValue(CIColor(red: CGFloat(topVertical), green: CGFloat(topVertical), blue: CGFloat(topVertical)), forKey: "inputColor0")
             verticalGradient.setValue(CIColor(red: CGFloat(bottomVertical), green: CGFloat(bottomVertical), blue: CGFloat(bottomVertical)), forKey: "inputColor1")
             

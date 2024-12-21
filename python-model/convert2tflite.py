@@ -50,6 +50,3 @@ if __name__ == "__main__":
 
     # 下载并保存 TensorFlow Hub 模型
     download_and_save_hub_model()
-
-    # 转换为 TFLite 模型
-    convert_to_tflite(saved_model_dir, tflite_model_path)

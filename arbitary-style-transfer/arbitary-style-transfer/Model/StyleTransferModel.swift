@@ -1,6 +1,7 @@
 import Foundation
 import TensorFlowLite
 import UIKit
+import CoreImage
 
 struct StyleTransferResult {
     let stylizedImage: UIImage
@@ -67,7 +68,7 @@ class StyleTransferModel {
 
         do {
             let originalSize = contentImage.size
-            // 调整内容图片大小，使其在1000x1000像素以内，保持比例
+            // 调整内容图片大小，使其在800x800像素以内，保持比例
             let resizedContentImage = resizeContentImage(image: contentImage, maxSize: CGSize(width: 800, height: 800))
 
             // 动态调整输入张量形状
@@ -127,34 +128,25 @@ class StyleTransferModel {
     private func preprocessImage(image: UIImage, tensorShape: [Int]) -> Data {
         let height = tensorShape[1]
         let width = tensorShape[2]
-
-        print("Preprocessing image with target size: \(width)x\(height)")
-
-        guard let cgImage = image.cgImage else {
-            fatalError("Cannot get CGImage from image.")
+        
+        guard let ciImage = CIImage(image: image) else {
+            fatalError("Cannot create CIImage from UIImage")
         }
-
-        guard let pixelData = cgImage.dataProvider?.data else {
-            fatalError("Cannot get pixel data.")
+        
+        // 创建 RGBA 格式的位图上下文
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent),
+              let pixelData = cgImage.dataProvider?.data else {
+            fatalError("Failed to create bitmap data")
         }
-
+        
         let rawBytes = CFDataGetBytePtr(pixelData)!
-        let bytesPerPixel = cgImage.bitsPerPixel / cgImage.bitsPerComponent
-        let expectedSize = height * width * bytesPerPixel
-        let actualSize = CFDataGetLength(pixelData)
-
-        print("Expected pixel data size: \(expectedSize), actual size: \(actualSize)")
-        print("Bytes per pixel: \(bytesPerPixel)")
-
-        guard actualSize >= expectedSize else {
-            fatalError("Pixel data size is smaller than expected.")
-        }
-
+        let bytesPerRow = cgImage.bytesPerRow
         var floatArray: [Float] = []
-
+        
         for y in 0..<height {
             for x in 0..<width {
-                let pixelIndex = (y * width + x) * bytesPerPixel
+                let pixelIndex = y * bytesPerRow + x * 4 // RGBA 格式，每像素4字节
                 let r = Float(rawBytes[pixelIndex]) / 255.0
                 let g = Float(rawBytes[pixelIndex + 1]) / 255.0
                 let b = Float(rawBytes[pixelIndex + 2]) / 255.0
@@ -163,7 +155,7 @@ class StyleTransferModel {
                 floatArray.append(b)
             }
         }
-
+        
         return Data(buffer: UnsafeBufferPointer(start: floatArray, count: floatArray.count))
     }
 
@@ -181,52 +173,75 @@ class StyleTransferModel {
         return UIImage.fromByteArray(byteArray, width: Int(size.width), height: Int(size.height))
     }
 
-    /// 调整内容图片尺寸，使其在1000x1000像素以内，保持比例
+    /// 调整内容图片尺寸，使其在特定像素以内，保持比例
     private func resizeContentImage(image: UIImage, maxSize: CGSize) -> UIImage {
-        let size = image.size
-        
-        // 如果图片尺寸已经在限制范围内，直接返回原图
-        if size.width <= maxSize.width && size.height <= maxSize.height {
-            print("Content image size already within limits: \(size.width)x\(size.height)")
+        guard let ciImage = CIImage(image: image) else {
             return image
         }
-
-        let widthRatio  = maxSize.width  / size.width
-        let heightRatio = maxSize.height / size.height
-        let scaleFactor = min(widthRatio, heightRatio)
-
-        let newSize = CGSize(width: size.width * scaleFactor, height: size.height * scaleFactor)
-
-        let rect = CGRect(origin: .zero, size: newSize)
-        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
-        image.draw(in: rect)
-        let newImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let resizedImage = newImage else {
-            fatalError("Failed to resize content image.")
+        
+        let size = image.size
+        if size.width <= maxSize.width && size.height <= maxSize.height {
+            return image
         }
-
+        
+        let widthRatio = maxSize.width / size.width
+        let heightRatio = maxSize.height / size.height
+        let scale = min(widthRatio, heightRatio)
+        
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let filter = CIFilter(name: "CILanczosScaleTransform")!
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(scale, forKey: kCIInputScaleKey)
+        filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+        
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let outputImage = filter.outputImage,
+              let cgImage = context.createCGImage(outputImage, from: outputImage.extent) else {
+            return image
+        }
+        
+        let resizedImage = UIImage(cgImage: cgImage)
         print("Resized content image to: \(resizedImage.size.width)x\(resizedImage.size.height)")
-
         return resizedImage
     }
 
-    /// 调整图片尺寸
+    /// 调整图片尺寸，保持比例并填充到指定尺寸
     private func resizeImage(image: UIImage, targetSize: CGSize) -> UIImage {
-        // 直接将图像调整为目标尺寸
-        let rect = CGRect(origin: .zero, size: targetSize)
-        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
-        image.draw(in: rect)
-        let newImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let resizedImage = newImage else {
-            fatalError("Failed to resize image.")
+        guard let ciImage = CIImage(image: image) else {
+            return image
         }
-
-        print("Resized image to: \(resizedImage.size.width)x\(resizedImage.size.height)")
-
+        
+        // 计算适当的缩放比例以覆盖目标尺寸
+        let widthRatio = targetSize.width / image.size.width
+        let heightRatio = targetSize.height / image.size.height
+        let scale = max(widthRatio, heightRatio) // 使用较大的缩放比例以确保填充
+        
+        // 使用 Lanczos 缩放
+        let scaleFilter = CIFilter(name: "CILanczosScaleTransform")!
+        scaleFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        scaleFilter.setValue(scale, forKey: kCIInputScaleKey)
+        scaleFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+        
+        guard let scaledImage = scaleFilter.outputImage else {
+            return image
+        }
+        
+        // 计算裁剪区域使图像居中
+        let scaledSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let cropX = (scaledSize.width - targetSize.width) / 2
+        let cropY = (scaledSize.height - targetSize.height) / 2
+        let cropRect = CGRect(x: cropX, y: cropY, width: targetSize.width, height: targetSize.height)
+        
+        // 裁剪到目标尺寸
+        let croppedImage = scaledImage.cropped(to: cropRect)
+        
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(croppedImage, from: croppedImage.extent) else {
+            return image
+        }
+        
+        let resizedImage = UIImage(cgImage: cgImage)
+        print("Resized style image to: \(resizedImage.size.width)x\(resizedImage.size.height)")
         return resizedImage
     }
 }
